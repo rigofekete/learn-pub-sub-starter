@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"log"
 	amqp "github.com/rabbitmq/amqp091-go"
-	// "os"
-	// "os/signal"
 	
 	"github.com/bootdotdev/learn-pub-sub-starter/internal/pubsub"
 	"github.com/bootdotdev/learn-pub-sub-starter/internal/routing"
@@ -36,25 +34,36 @@ func main() {
 
 	gameState := gamelogic.NewGameState(userName)
 	
-	amqpCh, err := connection.Channel()
+	publishCh, err := connection.Channel()
 	if err != nil {
 		log.Fatalf("could not create channel: %v", err)
 	}
 
 	err = pubsub.SubscribeJSON(
 		connection, 
-		routing.ExchangePerilTopic, 
-		routing.ArmyMovesPrefix + "." + gameState.Player.Username,     	
-		routing.ArmyMovesPrefix + ".*",     	
-		pubsub.SimpleQueueTransient, 
-		handlerMove(gameState),
-	) 
+		routing.ExchangePerilTopic,
+		routing.ArmyMovesPrefix + "." + gameState.GetUsername(),
+		routing.ArmyMovesPrefix + ".*",
+		pubsub.SimpleQueueTransient,
+		handlerMove(gameState, publishCh),
+	)
 	if err != nil {
-		log.Fatalf("Error subscribing JSON: %v", err)
+		log.Fatalf("Error subscribing move JSON: %v", err)
 	}
 
+	err = pubsub.SubscribeJSON(
+		connection,
+		routing.ExchangePerilTopic,
+		routing.WarRecognitionsPrefix,
+		routing.WarRecognitionsPrefix + ".*",
+		pubsub.SimpleQueueDurable,
+		handlerWar(gameState),
+	)
+	if err != nil {
+		log.Fatalf("Error subscribing war JSON: %v", err)
+	}
 	for {
-		words := gamelogic.GetInput()	
+		words := gamelogic.GetInput()
 		if len(words) == 0 {
 			continue
 		}
@@ -74,13 +83,13 @@ func main() {
 			}
 
 			err = pubsub.PublishJSON(
-				amqpCh, 
-				routing.ExchangePerilTopic, 
+				amqpCh,
+				routing.ExchangePerilTopic,
 				routing.ArmyMovesPrefix + "." + gameState.Player.Username,
 				mv,
 			)
 			if err != nil {
-				fmt.Printf("error: %s\n", err)	
+				fmt.Printf("error moving unit in client: %s\n", err)	
 				continue
 			}
 			fmt.Printf("Moved %v units to %s\n", len(mv.Units), mv.ToLocation)
