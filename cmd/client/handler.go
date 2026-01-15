@@ -6,6 +6,7 @@ import (
 	"github.com/bootdotdev/learn-pub-sub-starter/internal/gamelogic"
 	"github.com/bootdotdev/learn-pub-sub-starter/internal/pubsub"
 	amqp "github.com/rabbitmq/amqp091-go"
+	"time"
 )
 
 
@@ -51,21 +52,45 @@ func handlerPause(gs *gamelogic.GameState) func(routing.PlayingState) pubsub.Ack
 }
 
 
-func handlerWar(gs *gamelogic.GameState) func(gamelogic.RecognitionOfWar) pubsub.Acktype {
+func handlerWar(gs *gamelogic.GameState, publishCh *amqp.Channel) func(gamelogic.RecognitionOfWar) pubsub.Acktype {
 	return func(rw gamelogic.RecognitionOfWar) pubsub.Acktype {
 		defer fmt.Println("> ")
-		 outcome, _, _ := gs.HandleWar(rw)
+		 outcome, winner, loser := gs.HandleWar(rw)
 		 switch outcome {
 		 case gamelogic.WarOutcomeNotInvolved:
 			 return pubsub.NackRequeue
 		 case gamelogic.WarOutcomeNoUnits:
 			 return pubsub.NackDiscard
 		 case gamelogic.WarOutcomeOpponentWon:
+			 err := publishLog(
+				 gs.GetUsername(), 
+				 publishCh, 
+				 fmt.Sprintf("%s won a war against %s", winner, loser),
+			 )
+			 if err != nil {
+				return pubsub.NackRequeue
+			 }
 			 return pubsub.Ack
 		 case gamelogic.WarOutcomeYouWon:
+			 err := publishLog(
+				 gs.GetUsername(), 
+				 publishCh, 
+				 fmt.Sprintf("%s won a war against %s", winner, loser),
+			 )
+			 if err != nil {
+				return pubsub.NackRequeue
+			 }
 			 return pubsub.Ack
 		 case gamelogic.WarOutcomeDraw:
-		   return pubsub.Ack
+			 err := publishLog(
+				 gs.GetUsername(), 
+				 publishCh, 
+				 fmt.Sprintf("A war between %s and %s resulted in a draw", winner, loser),
+			 )
+			 if err != nil {
+				return pubsub.NackRequeue
+			 }
+			 return pubsub.Ack
 		 default:
 			 fmt.Println("Invalid outcome")
 			 return pubsub.NackDiscard
@@ -77,3 +102,16 @@ func handlerWar(gs *gamelogic.GameState) func(gamelogic.RecognitionOfWar) pubsub
 
 
 
+func publishLog(username string, publishCh *amqp.Channel, message string) error {
+	gl := routing.GameLog{
+		CurrentTime: 	time.Now(),
+		Message:    	message,
+		Username:   	username,
+	}
+	return pubsub.PublishGob(
+		publishCh, 
+		routing.ExchangePerilTopic,
+		routing.GameLogSlug + "." + username, 
+		gl,
+	)
+ }

@@ -57,7 +57,7 @@ func main() {
 		routing.WarRecognitionsPrefix,
 		routing.WarRecognitionsPrefix + ".*",
 		pubsub.SimpleQueueDurable,
-		handlerWar(gameState),
+		handlerWar(gameState, publishCh),
 	)
 	if err != nil {
 		log.Fatalf("Error subscribing war JSON: %v", err)
@@ -83,7 +83,7 @@ func main() {
 			}
 
 			err = pubsub.PublishJSON(
-				amqpCh,
+				publishCh,
 				routing.ExchangePerilTopic,
 				routing.ArmyMovesPrefix + "." + gameState.Player.Username,
 				mv,
