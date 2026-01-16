@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"log"
 	amqp "github.com/rabbitmq/amqp091-go"
+	"strconv"
+	"time"
 	
 	"github.com/bootdotdev/learn-pub-sub-starter/internal/pubsub"
 	"github.com/bootdotdev/learn-pub-sub-starter/internal/routing"
@@ -19,7 +21,7 @@ func main() {
 	}
 	defer connection.Close()
 
-	userName, err := gamelogic.ClientWelcome()  
+	username, err := gamelogic.ClientWelcome()  
 	if err != nil {
 		log.Fatalf("Error getting username: %v", err)
 	}
@@ -27,12 +29,12 @@ func main() {
 	// _, _, err = pubsub.DeclareAndBind(
 	// 		connection, 
 	// 		routing.ExchangePerilTopic, 
-	// 		routing.ArmyMovesPrefix + "." + userName,
+	// 		routing.ArmyMovesPrefix + "." + username,
 	// 		routing.ArmyMovesPrefix + ".*",
 	// 		pubsub.SimpleQueueTransient,
 	// )
 
-	gameState := gamelogic.NewGameState(userName)
+	gameState := gamelogic.NewGameState(username)
 	
 	publishCh, err := connection.Channel()
 	if err != nil {
@@ -42,7 +44,7 @@ func main() {
 	err = pubsub.SubscribeJSON(
 		connection, 
 		routing.ExchangePerilTopic,
-		routing.ArmyMovesPrefix + "." + gameState.GetUsername(),
+		routing.ArmyMovesPrefix + "." + username,
 		routing.ArmyMovesPrefix + ".*",
 		pubsub.SimpleQueueTransient,
 		handlerMove(gameState, publishCh),
@@ -97,6 +99,25 @@ func main() {
 			gameState.CommandStatus()
 		case "help":
 			gamelogic.PrintClientHelp() 
+		case "spam":
+			if len(words) < 2 {
+				fmt.Println("usage: spam <n>")
+				continue
+			}
+			n, err := strconv.Atoi(words[1])
+			if err != nil {
+				fmt.Printf("error: %s is not a valid number\n", words[1])
+				continue
+			}
+			for i := 0; i < n; i++ {
+				msg := gamelogic.GetMaliciousLog()
+				err = publishGameLog(publishCh, username, msg)
+				if err != nil {
+					fmt.Printf("error publishing malicious log: %s\n", err)
+				}
+			}
+			fmt.Printf("Published %v malicious logs\n", n)
+
 		case "quit":
 			gamelogic.PrintQuit()
 			return
@@ -111,4 +132,19 @@ func main() {
 	// signal.Notify(signalChan, os.Interrupt)
 	// <-signalChan
 
+}
+
+
+
+func publishGameLog(publishCh *amqp.Channel, username, msg string) error {
+	return pubsub.PublishGob(
+		publishCh,
+		routing.ExchangePerilTopic,
+		routing.GameLogSlug+"."+username,
+		routing.GameLog{
+			Username:    username,
+			CurrentTime: time.Now(),
+			Message:     msg,
+		},
+	)
 }

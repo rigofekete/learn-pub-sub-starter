@@ -30,7 +30,7 @@ func main() {
 	// 		routing.ExchangePerilTopic, 
 	// 		routing.GameLogSlug,
 	// 		routing.GameLogSlug + ".*",
-	// 		pubsub.SimpleQueueTransient,
+	// 		pubsub.SimpleQueueDurable,
 	// )
 	// if err != nil {
 	// 	log.Fatalf("could not subscribe to pause: %v", err)
@@ -42,7 +42,7 @@ func main() {
 			routing.ExchangePerilTopic, 
 			routing.GameLogSlug,
 			routing.GameLogSlug + ".*",
-			pubsub.SimpleQueueTransient,
+			pubsub.SimpleQueueDurable,
 			handlerLog(),
 	)
 	if err != nil {
