@@ -2,7 +2,9 @@ package pubsub
 
 import (
 	amqp "github.com/rabbitmq/amqp091-go"
+	"bytes"
 	"encoding/json"
+	"encoding/gob"
 	"fmt"
 )
 
@@ -22,6 +24,20 @@ const (
 )
 
 
+func unmarshallerJSON[T any](body []byte) (T, error) {
+	var decoded T
+	err := json.Unmarshal(body, &decoded)
+	return decoded, err
+}
+
+func decoderGob[T any](body []byte) (T, error) {
+	buffer := bytes.NewBuffer(body)
+	dec := gob.NewDecoder(buffer)
+	var decoded T
+	err := dec.Decode(&decoded)
+	return decoded, err
+}
+
 
 func SubscribeJSON[T any](
 	conn *amqp.Connection,
@@ -31,6 +47,55 @@ func SubscribeJSON[T any](
 	queueType SimpleQueueType, // an enum to represent "durable" or "transient"
 	handler func(T) Acktype,
 ) error {
+	return subscribe[T]( 
+		conn,
+		exchange,
+		queueName,
+		key,
+		queueType,
+		handler,
+		unmarshallerJSON,
+	)
+}
+
+
+
+func SubscribeGob[T any](
+	conn *amqp.Connection,
+	exchange,
+	queueName,
+	key string,
+	queueType SimpleQueueType, // an enum to represent "durable" or "transient"
+	handler func(T) Acktype,
+) error {
+	return subscribe[T]( 
+		conn,
+		exchange,
+		queueName,
+		key,
+		queueType,
+		handler,
+		decoderGob,
+		// func(data []byte) (T, error) {
+		// 	buffer := bytes.NewBuffer(data)
+		// 	dec := gob.NewDecoder(buffer)
+		// 	var decoded T
+		// 	err := dec.Decode(&decoded)
+		// 	return decoded, err
+		// },
+	)
+}
+
+
+func subscribe[T any](
+	conn *amqp.Connection,
+	exchange,
+	queueName,
+	key string,
+	queueType SimpleQueueType, // an enum to represent "durable" or "transient"
+	handler func(T) Acktype,
+	decoder func([]byte) (T, error),
+) error {
 	_, _, err := DeclareAndBind(conn, exchange, queueName, key, queueType)	
 	if err != nil {
 		return err
@@ -38,56 +103,42 @@ func SubscribeJSON[T any](
 
 	ch, err := conn.Channel()
 	if err != nil {
-		// log.Fatalf("channel.open: %s", err)
 		return err
 	}
 
-	deliveryCh, err := ch.Consume(queueName, "", false, false, false, false, nil)
+	deliveryCh, err := ch.Consume(
+		queueName, 
+		"", 
+		false, 
+		false, 
+		false, 
+		false, 
+		nil,
+	)
 	if err != nil {
 		return err
 	}
+
 	go func() {
 		defer ch.Close()
 		for delivery := range deliveryCh {
-			var decoded T
-			err = json.Unmarshal(delivery.Body, &decoded)
+			decoded, err := decoder(delivery.Body)
 			if err != nil {
 				fmt.Printf("error unmarshalling: %v", err)	
 				continue
 			}
-
-			ack := handler(decoded)
-			if ack == Ack { 
-				err = delivery.Ack(false)
-				if err != nil {
-					fmt.Printf("error on delivery.Ack: %v", err)	
-					continue
-				}
-				fmt.Println("Ack")
-				continue
+			switch handler(decoded) {
+			case Ack: 
+				delivery.Ack(false)
+			case NackRequeue:
+				delivery.Nack(false, true)
+			case NackDiscard:
+				delivery.Nack(false, false)
 			}
-			if ack == NackRequeue {
-				err = delivery.Nack(false, true)
-				if err != nil {
-					fmt.Printf("error on delivery.Nack (requeue): %v", err)	
-					continue
-				}
-				fmt.Println("NackRequeue")
-				continue
-			}
-			err = delivery.Nack(false, false)
-			if err != nil {
-				fmt.Printf("error on delivery.Nack (Discard): %v", err)	
-				continue
-			}
-			fmt.Println("NackDiscard")
 		}
 	}()
-	
-
 	return nil
 }
-
 
 
 func DeclareAndBind(
@@ -130,6 +181,3 @@ func DeclareAndBind(
 	
 	return amqpCh, queue, nil
 }
-
-
-

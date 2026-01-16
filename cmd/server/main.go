@@ -25,17 +25,30 @@ func main() {
 	}
 	
 
-	_, queue, err := pubsub.DeclareAndBind(
+	// _, queue, err := pubsub.DeclareAndBind(
+	// 		connection, 
+	// 		routing.ExchangePerilTopic, 
+	// 		routing.GameLogSlug,
+	// 		routing.GameLogSlug + ".*",
+	// 		pubsub.SimpleQueueTransient,
+	// )
+	// if err != nil {
+	// 	log.Fatalf("could not subscribe to pause: %v", err)
+	// }
+	// fmt.Printf("Queue %v declared and bound!\n", queue.Name)
+
+	err = pubsub.SubscribeGob(
 			connection, 
 			routing.ExchangePerilTopic, 
 			routing.GameLogSlug,
 			routing.GameLogSlug + ".*",
 			pubsub.SimpleQueueTransient,
+			handlerLog(),
 	)
 	if err != nil {
 		log.Fatalf("could not subscribe to pause: %v", err)
 	}
-	fmt.Printf("Queue %v declared and bound!\n", queue.Name)
+	fmt.Printf("Queue %v subscribed and bound!\n", routing.GameLogSlug)
 
 	gamelogic.PrintServerHelp()
 
@@ -80,4 +93,6 @@ func main() {
 		}
 	}
 }
+
+
 
